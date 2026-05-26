@@ -1,40 +1,30 @@
 from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Optional, Tuple
 
 class IOrderRepository(ABC):
     @abstractmethod
-    def add(self, client, items_str, total, status, date, client_type): pass
-    
+    def add(self, client: str, items_str: str, total: float, status: str, date: str, client_type: str) -> int: ...
     @abstractmethod
-    def get(self, order_id): pass
-    
+    def get(self, order_id: int) -> Optional[Dict[str, Any]]: ...
     @abstractmethod
-    def update_status(self, order_id, status): pass
-    
+    def update_status(self, order_id: int, status: str) -> None: ...
     @abstractmethod
-    def get_all_by_client(self, client): pass
-    
+    def get_all_by_client(self, client: str) -> List[Tuple[Any, ...]]: ...
     @abstractmethod
-    def get_all(self): pass
-    
+    def get_all(self) -> List[Tuple[Any, ...]]: ...
     @abstractmethod
-    def get_all_clients(self): pass
-    
+    def get_all_clients(self) -> List[Tuple[Any, ...]]: ...
     @abstractmethod
-    def close(self): pass
+    def close(self) -> None: ...
 
-class INotificationService(ABC):
+class IDiscountStrategy(ABC):
     @abstractmethod
-    def notify_received(self, client, client_type): pass
-    
-    @abstractmethod
-    def notify_approved(self, client, client_type): pass
-    
-    @abstractmethod
-    def notify_shipped(self, client): pass
-    
-    @abstractmethod
-    def notify_delivered(self, client, client_type, total): pass
+    def calculate(self, items: List[Dict[str, Any]], client_type: str) -> float: ...
 
-class IStockService(ABC):
+class IPaymentStrategy(ABC):
     @abstractmethod
-    def validate(self, items): pass
+    def process(self, amount: float) -> bool: ...
+
+class IOrderObserver(ABC):
+    @abstractmethod
+    def update(self, order_id: int, client: str, client_type: str, status: str, total: float) -> None: ...
