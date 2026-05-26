@@ -7,8 +7,6 @@ from services.order_service import OrderService
 
 class Sis:
     def __init__(self):
-        # A montagem das camadas ocorre aqui. A injeção de dependência pura 
-        # (DIP) vira exigência apenas no Sprint 2.
         self.repo = OrderRepository()
         self.notifier = ConsoleNotificationService()
         self.stock = MockStockService()
