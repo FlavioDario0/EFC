@@ -1,71 +1,57 @@
 import json
 from datetime import datetime
-from repositories.interface import IOrderRepository, INotificationService
+from typing import List, Dict, Any
+from repositories.interface import IOrderRepository, IDiscountStrategy, IPaymentStrategy
+from observers.observers import Publisher
 
 class OrderService:
-    def __init__(self, repo: IOrderRepository, notifier: INotificationService):
+    def __init__(self, repo: IOrderRepository, discount_strategy: IDiscountStrategy, publisher: Publisher) -> None:
         self.repo = repo
-        self.notifier = notifier
+        self.discount_strategy = discount_strategy
+        self.publisher = publisher
+        self.payment_methods: Dict[str, Any] = {}
 
-    def add_ped(self, n, its, t):
-        dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        tot = 0
-        for i in its:
-            if i['tipo'] == 'normal': tot += i['p'] * i['q']
-            elif i['tipo'] == 'desc10': tot += i['p'] * i['q'] * 0.9
-            elif i['tipo'] == 'desc20': tot += i['p'] * i['q'] * 0.8
-            elif i['tipo'] == 'frete_gratis': tot += i['p']
+    def register_payment_strategy(self, name: str, strategy: IPaymentStrategy) -> None:
+        self.payment_methods[name] = strategy
 
-        if t == 'vip': tot = tot * 0.95
-        elif t == 'corporativo': tot = tot * 0.90
-
-        its_str = json.dumps(its)
-        id_ped = self.repo.add(n, its_str, tot, 'pendente', dt, t)
-        self.notifier.notify_received(n, t)
+    def add_ped(self, n: str, its: List[Dict[str, Any]], t: str) -> int:
+        dt: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tot: float = self.discount_strategy.calculate(its, t)
+        
+        id_ped: int = self.repo.add(n, json.dumps(its), tot, 'pendente', dt, t)
+        self.publisher.notify(id_ped, n, t, 'pendente', tot)
         return id_ped
 
-    def upd_st(self, id, s):
+    def upd_st(self, id: int, s: str) -> None:
         p = self.repo.get(id)
         if p:
             self.repo.update_status(id, s)
-            if s == 'aprovado': self.notifier.notify_approved(p['cli'], p['tp'])
-            elif s == 'enviado': self.notifier.notify_shipped(p['cli'])
-            elif s == 'entregue': self.notifier.notify_delivered(p['cli'], p['tp'], p['tot'])
+            self.publisher.notify(id, str(p['cli']), str(p['tp']), s, float(p['tot']))
 
-    def proc_pag(self, id, m, vl):
+    def proc_pag(self, id: int, m: str, vl: float) -> bool:
         p = self.repo.get(id)
         if not p: return False
-        if vl < p['tot']:
+        if vl < float(p['tot']):
             print("Valor insuficiente!")
             return False
-        
-        if m == 'cartao':
-            print("Processando pagamento com cartao...\nCartao validado!")
-            self.upd_st(id, 'aprovado')
-            return True
-        elif m == 'pix':
-            print("Gerando QR Code PIX...\nPIX recebido!")
-            self.upd_st(id, 'aprovado')
-            return True
-        elif m == 'boleto':
-            print("Gerando boleto...\nBoleto gerado!")
-            return True
-        else:
+            
+        strategy: IPaymentStrategy = self.payment_methods.get(m) 
+        if not strategy:
             print("Metodo de pagamento invalido!")
             return False
+            
+        if strategy.process(vl) and m != 'boleto':
+            self.upd_st(id, 'aprovado')
+        return True
 
-    def cancelar_pedido(self, id):
-        self.repo.update_status(id, 'cancelado')
-        print(f"Pedido {id} cancelado")
+    def calc_tot_cli(self, n: str) -> float:
+        return sum(float(r[3]) for r in self.repo.get_all_by_client(n))
 
-    def calc_tot_cli(self, n):
-        return sum(r[3] for r in self.repo.get_all_by_client(n))
-
-    def gerar_rel(self, tipo):
+    def gerar_rel(self, tipo: str) -> None:
         if tipo == 'vendas':
             rs = self.repo.get_all()
             print("=== RELATORIO DE VENDAS ===")
-            tot_g = sum(r[3] for r in rs)
+            tot_g: float = sum(float(r[3]) for r in rs)
             for r in rs:
                 print(f"Pedido #{r[0]} - Cliente: {r[1]} - Total: R${r[3]:.2f} - Status: {r[4]}")
             print(f"Total Geral: R${tot_g:.2f}")
@@ -73,11 +59,15 @@ class OrderService:
                 f.write(f"Total de vendas: {tot_g}")
                 
         elif tipo == 'clientes':
-            rs = self.repo.get_all_clients()
+            rs_cli = self.repo.get_all_clients()
             print("=== RELATORIO DE CLIENTES ===")
-            for r in rs:
-                tot = self.calc_tot_cli(r[0])
-                print(f"Cliente: {r[0]} ({r[1]}) - Total gasto: R${tot:.2f}")
+            for rc in rs_cli:
+                tot_c = self.calc_tot_cli(rc[0])
+                print(f"Cliente: {rc[0]} ({rc[1]}) - Total gasto: R${tot_c:.2f}")
             with open('rel_clientes.txt', 'w') as f:
-                for r in rs:
-                    f.write(f"{r[0]}, {r[1]}\n")
+                for rc in rs_cli:
+                    f.write(f"{rc[0]}, {rc[1]}\n")
+
+    def cancelar_pedido(self, id: int) -> None:
+        self.repo.update_status(id, 'cancelado')
+        print(f"Pedido {id} cancelado")
