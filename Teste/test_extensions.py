@@ -1,5 +1,5 @@
 from extensions.crypto_payment import CryptoPayment
-from strategies import StandardDiscountStrategy
+from strategies.discount_strategy import StandardDiscountStrategy
 from extensions.whatsapp_obeserver import WhatsAppNotificationObserver
 from extensions.volume_discount import VolumeDiscountDecorator
 
